@@ -22,7 +22,7 @@ docker run --rm \
     bash -c "
         apt-get update -qq && \
         apt-get install -y -qq dpkg-dev && \
-        ./build-deb.sh
+        ./script/build-deb.sh
     "
 
 echo ""

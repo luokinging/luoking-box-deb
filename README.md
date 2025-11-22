@@ -7,7 +7,7 @@
 - ✅ 通过 systemd 管理客户端服务（类似 nginx）
 - ✅ 灵活的配置管理，支持多个配置文件切换
 - ✅ 默认不自动启动
-- ✅ 配置文件位于 `/etc/sing-box/`
+- ✅ 配置文件位于 `/etc/luoking-box/`
 - ✅ 支持 `systemctl` 命令管理
 
 ## 构建包
@@ -92,13 +92,13 @@ sudo systemctl restart luoking-box
 
 luoking-box 使用灵活的配置管理方式，支持多个配置文件：
 
-- **主配置文件**: `/etc/sing-box/config.json` - 指定当前使用的配置
-- **配置目录**: `/etc/sing-box/sing-box-config/` - 存放多个 sing-box 配置文件
+- **主配置文件**: `/etc/luoking-box/config.json` - 指定当前使用的配置
+- **配置目录**: `/etc/luoking-box/sing-box-config/` - 存放多个 sing-box 配置文件
 
 ### 配置结构
 
 ```
-/etc/sing-box/
+/etc/luoking-box/
 ├── config.json                    # 主配置文件，指定 active_config（默认指向 "default"）
 ├── config.json.example            # 主配置示例
 └── sing-box-config/               # 配置目录
@@ -164,16 +164,16 @@ luoking-box 使用灵活的配置管理方式，支持多个配置文件：
 ### 使用方式
 
 安装后，系统会自动创建：
-- `/etc/sing-box/config.json` - 指向 `"default"` 配置
-- `/etc/sing-box/sing-box-config/default.json` - 结构化空配置
+- `/etc/luoking-box/config.json` - 指向 `"default"` 配置
+- `/etc/luoking-box/sing-box-config/default.json` - 结构化空配置
 
 **首次使用**：
 
-1. **编辑默认配置**：编辑 `/etc/sing-box/sing-box-config/default.json`，添加你的 sing-box 配置内容
+1. **编辑默认配置**：编辑 `/etc/luoking-box/sing-box-config/default.json`，添加你的 sing-box 配置内容
 
-2. **或者创建新配置**：在 `/etc/sing-box/sing-box-config/` 目录下创建新的配置文件，例如 `my-config.json`
+2. **或者创建新配置**：在 `/etc/luoking-box/sing-box-config/` 目录下创建新的配置文件，例如 `my-config.json`
 
-3. **设置活动配置**（如果使用新配置）：编辑 `/etc/sing-box/config.json`，设置 `active_config` 字段：
+3. **设置活动配置**（如果使用新配置）：编辑 `/etc/luoking-box/config.json`，设置 `active_config` 字段：
 ```json
 {
     "active_config": "my-config"
@@ -189,8 +189,8 @@ sudo systemctl restart luoking-box
 
 假设你有两个配置：`home.json` 和 `office.json`
 
-1. 将配置文件放入 `/etc/sing-box/sing-box-config/` 目录
-2. 编辑 `/etc/sing-box/config.json`：
+1. 将配置文件放入 `/etc/luoking-box/sing-box-config/` 目录
+2. 编辑 `/etc/luoking-box/config.json`：
 ```json
 {
     "active_config": "home"
@@ -222,7 +222,7 @@ sudo dpkg -P luoking-box
 ## 目录结构
 
 ```
-/etc/sing-box/
+/etc/luoking-box/
 ├── config.json                    # 主配置文件
 ├── config.json.example            # 主配置示例
 └── sing-box-config/               # 配置目录
@@ -244,15 +244,15 @@ sudo dpkg -P luoking-box
 1. **检查主配置文件**：
 ```bash
 # 检查 config.json 格式
-cat /etc/sing-box/config.json
+cat /etc/luoking-box/config.json
 ```
 
 2. **检查活动配置文件的语法**：
 ```bash
 # 查看当前使用的配置文件名
-ACTIVE_CONFIG=$(grep -o '"active_config"[[:space:]]*:[[:space:]]*"[^"]*"' /etc/sing-box/config.json | cut -d'"' -f4)
+ACTIVE_CONFIG=$(grep -o '"active_config"[[:space:]]*:[[:space:]]*"[^"]*"' /etc/luoking-box/config.json | cut -d'"' -f4)
 # 检查配置语法
-sudo /usr/bin/sing-box check -c /etc/sing-box/sing-box-config/${ACTIVE_CONFIG}.json
+sudo /usr/bin/sing-box check -c /etc/luoking-box/sing-box-config/${ACTIVE_CONFIG}.json
 ```
 
 3. **查看日志**：
@@ -268,7 +268,7 @@ sudo systemctl status luoking-box
 4. **检查配置文件是否存在**：
 ```bash
 # 确认配置目录和文件存在
-ls -la /etc/sing-box/sing-box-config/
+ls -la /etc/luoking-box/sing-box-config/
 ```
 
 ### 权限问题
@@ -277,8 +277,8 @@ ls -la /etc/sing-box/sing-box-config/
 
 ### 配置切换不生效
 
-- 确保修改了 `/etc/sing-box/config.json` 中的 `active_config` 字段
-- 确保对应的配置文件存在于 `/etc/sing-box/sing-box-config/` 目录
+- 确保修改了 `/etc/luoking-box/config.json` 中的 `active_config` 字段
+- 确保对应的配置文件存在于 `/etc/luoking-box/sing-box-config/` 目录
 - 重启服务：`sudo systemctl restart luoking-box`
 
 ## 开发
@@ -318,7 +318,7 @@ luoking-singbox-deb/
 
 ### 工作原理
 
-- `luoking-box-wrapper` 脚本读取 `/etc/sing-box/config.json` 中的 `active_config` 字段
+- `luoking-box-wrapper` 脚本读取 `/etc/luoking-box/config.json` 中的 `active_config` 字段
 - 根据 `active_config` 的值，加载对应的配置文件（如 `default.json`）
 - 使用 `sing-box` 运行选定的配置文件
 - 通过修改 `config.json` 可以轻松切换不同的配置

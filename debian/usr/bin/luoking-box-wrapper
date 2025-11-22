@@ -2,8 +2,8 @@
 # luoking-box wrapper script
 # Reads config.json to determine which configuration file to use
 
-CONFIG_FILE="/etc/sing-box/config.json"
-CONFIG_DIR="/etc/sing-box/sing-box-config"
+CONFIG_FILE="/etc/luoking-box/config.json"
+CONFIG_DIR="/etc/luoking-box/sing-box-config"
 
 # Check if config.json exists
 if [ ! -f "$CONFIG_FILE" ]; then

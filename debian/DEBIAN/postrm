@@ -1,16 +1,22 @@
 #!/bin/bash
 set -e
 
-# Reload systemd after removal
+# Reload systemd after removal (skip if systemctl not available)
 if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
-    systemctl daemon-reload
+    if command -v systemctl >/dev/null 2>&1 && systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload || true
+    fi
 fi
 
-# Remove config files only on purge
+# Remove config files and log directory only on purge
 if [ "$1" = "purge" ]; then
-    if [ -d /etc/sing-box ]; then
-        echo "Removing configuration directory /etc/sing-box..."
-        rm -rf /etc/sing-box
+    if [ -d /etc/luoking-box ]; then
+        echo "Removing configuration directory /etc/luoking-box..."
+        rm -rf /etc/luoking-box
+    fi
+    if [ -d /var/log/luoking-box ]; then
+        echo "Removing log directory /var/log/luoking-box..."
+        rm -rf /var/log/luoking-box
     fi
 fi
 
