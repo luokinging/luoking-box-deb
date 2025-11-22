@@ -1,0 +1,11 @@
+#!/bin/bash
+set -e
+
+# Stop service before removal
+if systemctl is-active --quiet luoking-box.service 2>/dev/null; then
+    systemctl stop luoking-box.service
+fi
+
+# Disable service
+systemctl disable luoking-box.service >/dev/null 2>&1 || true
+

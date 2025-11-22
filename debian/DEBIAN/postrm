@@ -1,0 +1,16 @@
+#!/bin/bash
+set -e
+
+# Reload systemd after removal
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    systemctl daemon-reload
+fi
+
+# Remove config files only on purge
+if [ "$1" = "purge" ]; then
+    if [ -d /etc/sing-box ]; then
+        echo "Removing configuration directory /etc/sing-box..."
+        rm -rf /etc/sing-box
+    fi
+fi
+

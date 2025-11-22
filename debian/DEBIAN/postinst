@@ -1,0 +1,82 @@
+#!/bin/bash
+set -e
+
+# Reload systemd to recognize new services
+systemctl daemon-reload
+
+# Disable service by default (it should not auto-start)
+systemctl disable luoking-box.service >/dev/null 2>&1 || true
+
+# Create log directory
+mkdir -p /var/log/luoking-box
+chmod 755 /var/log/luoking-box
+
+# Create sing-box-config directory if it doesn't exist
+mkdir -p /etc/sing-box/sing-box-config
+chmod 755 /etc/sing-box/sing-box-config
+
+# Set permissions for config files (if they exist from package)
+if [ -f /etc/sing-box/config.json ]; then
+    chmod 600 /etc/sing-box/config.json
+fi
+
+if [ -f /etc/sing-box/sing-box-config/default.json ]; then
+    chmod 600 /etc/sing-box/sing-box-config/default.json
+fi
+
+# Create default config.json if it doesn't exist (for upgrades)
+if [ ! -f /etc/sing-box/config.json ]; then
+    echo '{"active_config": "default"}' > /etc/sing-box/config.json
+    chmod 600 /etc/sing-box/config.json
+    echo "Created default config.json at /etc/sing-box/config.json"
+fi
+
+# Create default configuration file if it doesn't exist (for upgrades)
+if [ ! -f /etc/sing-box/sing-box-config/default.json ]; then
+    cat > /etc/sing-box/sing-box-config/default.json << 'EOF'
+{
+    "log": {
+        "disabled": false,
+        "level": "info",
+        "timestamp": true
+    },
+    "dns": {
+        "servers": [],
+        "rules": [],
+        "final": "",
+        "strategy": "",
+        "disable_cache": false,
+        "disable_expire": false,
+        "independent_cache": false,
+        "cache_capacity": 0,
+        "reverse_mapping": false
+    },
+    "inbounds": [],
+    "outbounds": [],
+    "route": {
+        "rules": [],
+        "rule_set": [],
+        "default_domain_resolver": "",
+        "final": "",
+        "auto_detect_interface": false
+    }
+}
+EOF
+    chmod 600 /etc/sing-box/sing-box-config/default.json
+    echo "Created default configuration at /etc/sing-box/sing-box-config/default.json"
+    echo "Please configure it before starting the service."
+fi
+
+echo ""
+echo "luoking-box has been installed successfully!"
+echo ""
+echo "To start the service (for local proxy):"
+echo "  sudo systemctl start luoking-box"
+echo ""
+echo "Configuration files:"
+echo "  Main config: /etc/sing-box/config.json"
+echo "  Config directory: /etc/sing-box/sing-box-config/"
+echo ""
+echo "To switch configuration, edit /etc/sing-box/config.json and change 'active_config'"
+echo "then restart the service: sudo systemctl restart luoking-box"
+

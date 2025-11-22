@@ -1,0 +1,13 @@
+# Build artifacts
+build/
+*.deb
+
+# Backup files
+*.bak
+*~
+
+# macOS
+.DS_Store
+
+# test
+test/

@@ -1,0 +1,13 @@
+Package: luoking-box
+Version: 1.0.0
+Section: net
+Priority: optional
+Architecture: amd64
+Depends: systemd, iproute2
+Maintainer: luoking <luoking@example.com>
+Description: luoking-box proxy client
+ A modern universal proxy platform that supports multiple protocols.
+ This package provides client service managed via systemd.
+ The client service routes local traffic through VPS proxy.
+ The service is disabled by default.
+
