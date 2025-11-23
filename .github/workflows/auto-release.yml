@@ -12,7 +12,7 @@ on:
 jobs:
   create-pr:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.event.head_commit.message =~ /^Merge/
+    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Merge')
     concurrency:
       group: auto-release-pr
       cancel-in-progress: false
