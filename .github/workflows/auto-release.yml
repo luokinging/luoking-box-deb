@@ -30,42 +30,27 @@ jobs:
     - name: Check for breaking/feat commits in current push
       id: check-commits
       run: |
-        # Only check commits in the current push, not all history
-        # Get the previous commit SHA (before this push)
-        PREV_SHA="${{ github.event.before }}"
-        CURRENT_SHA="${{ github.event.after }}"
+        # Only check the HEAD commit (current push), not all history
+        # This ensures we only check what was just pushed
+        CURRENT_COMMIT=$(git log -1 --oneline)
         
-        echo "Previous SHA: ${PREV_SHA:-none}"
-        echo "Current SHA: $CURRENT_SHA"
+        echo "Current commit: $CURRENT_COMMIT"
+        echo "Checking only the HEAD commit"
         
-        if [ -z "$PREV_SHA" ] || [ "$PREV_SHA" = "0000000000000000000000000000000000000000" ]; then
-          # First push or no previous commit, check only the current commit
-          COMMITS=$(git log -1 --oneline)
-          echo "Checking only current commit (first push)"
-        else
-          # Check commits between previous and current
-          COMMITS=$(git log ${PREV_SHA}..${CURRENT_SHA} --oneline)
-          echo "Checking commits in current push"
-        fi
-        
-        echo "Commits to check:"
-        echo "$COMMITS"
+        # Extract commit message (skip commit hash)
+        MSG=$(echo "$CURRENT_COMMIT" | cut -d' ' -f2-)
+        echo "Commit message: $MSG"
         
         HAS_BREAKING=false
         HAS_FEAT=false
         
-        while IFS= read -r commit; do
-          [ -z "$commit" ] && continue
-          MSG=$(echo "$commit" | cut -d' ' -f2-)
-          echo "Checking commit: $MSG"
-          if echo "$MSG" | grep -qiE "BREAKING CHANGE|!:"; then
-            HAS_BREAKING=true
-            echo "  -> Found BREAKING CHANGE"
-          elif echo "$MSG" | grep -qiE "^feat"; then
-            HAS_FEAT=true
-            echo "  -> Found feat commit"
-          fi
-        done <<< "$COMMITS"
+        if echo "$MSG" | grep -qiE "BREAKING CHANGE|!:"; then
+          HAS_BREAKING=true
+          echo "  -> Found BREAKING CHANGE"
+        elif echo "$MSG" | grep -qiE "^feat"; then
+          HAS_FEAT=true
+          echo "  -> Found feat commit"
+        fi
         
         if [ "$HAS_BREAKING" = true ] || [ "$HAS_FEAT" = true ]; then
           echo "skip_auto_release=true" >> $GITHUB_OUTPUT
