@@ -27,21 +27,38 @@ jobs:
       run: |
         # Get commits since last tag or from beginning
         LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+        echo "Last tag: ${LAST_TAG:-none}"
+        
         if [ -z "$LAST_TAG" ]; then
-          COMMITS=$(git log --oneline)
+          # If no tag, check commits since production branch
+          if git rev-parse --verify origin/production >/dev/null 2>&1; then
+            COMMITS=$(git log origin/production..HEAD --oneline)
+            echo "Checking commits since production branch"
+          else
+            COMMITS=$(git log --oneline -10)
+            echo "No production branch found, checking last 10 commits"
+          fi
         else
           COMMITS=$(git log ${LAST_TAG}..HEAD --oneline)
+          echo "Checking commits since tag $LAST_TAG"
         fi
+        
+        echo "Commits to check:"
+        echo "$COMMITS"
         
         HAS_BREAKING=false
         HAS_FEAT=false
         
         while IFS= read -r commit; do
+          [ -z "$commit" ] && continue
           MSG=$(echo "$commit" | cut -d' ' -f2-)
+          echo "Checking commit: $MSG"
           if echo "$MSG" | grep -qiE "BREAKING CHANGE|!:"; then
             HAS_BREAKING=true
+            echo "  -> Found BREAKING CHANGE"
           elif echo "$MSG" | grep -qiE "^feat"; then
             HAS_FEAT=true
+            echo "  -> Found feat commit"
           fi
         done <<< "$COMMITS"
         
@@ -50,7 +67,13 @@ jobs:
           echo "Found breaking or feat commits, skipping auto-release"
         else
           echo "skip_auto_release=false" >> $GITHUB_OUTPUT
+          echo "No breaking or feat commits found, proceeding with auto-release"
         fi
+        
+    - name: Debug check-commits output
+      run: |
+        echo "skip_auto_release value: ${{ steps.check-commits.outputs.skip_auto_release }}"
+        echo "Will create PR: ${{ steps.check-commits.outputs.skip_auto_release == 'false' }}"
         
     - name: Create or update PR to production
       if: steps.check-commits.outputs.skip_auto_release == 'false'
@@ -58,38 +81,49 @@ jobs:
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         script: |
-          const { data: existingPRs } = await github.rest.pulls.list({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            head: `${context.repo.owner}:main`,
-            base: 'production',
-            state: 'open'
-          });
+          console.log('Starting PR creation/update process...');
           
-          const prTitle = 'chore: auto-release patch update';
-          const prBody = 'This PR contains patch updates for auto-release.';
-          
-          if (existingPRs.length > 0) {
-            // Update existing PR
-            const pr = existingPRs[0];
-            console.log(`Updating existing PR #${pr.number}`);
-            await github.rest.pulls.update({
+          try {
+            const { data: existingPRs } = await github.rest.pulls.list({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              pull_number: pr.number,
-              body: prBody
-            });
-          } else {
-            // Create new PR
-            const { data: pr } = await github.rest.pulls.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: prTitle,
-              head: 'main',
+              head: `${context.repo.owner}:main`,
               base: 'production',
-              body: prBody
+              state: 'open'
             });
-            console.log(`Created PR #${pr.number}`);
+            
+            console.log(`Found ${existingPRs.length} existing open PR(s)`);
+            
+            const prTitle = 'chore: auto-release patch update';
+            const prBody = 'This PR contains patch updates for auto-release.';
+            
+            if (existingPRs.length > 0) {
+              // Update existing PR
+              const pr = existingPRs[0];
+              console.log(`Updating existing PR #${pr.number}`);
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                body: prBody
+              });
+              console.log(`Successfully updated PR #${pr.number}`);
+            } else {
+              // Create new PR
+              console.log('Creating new PR...');
+              const { data: pr } = await github.rest.pulls.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: prTitle,
+                head: 'main',
+                base: 'production',
+                body: prBody
+              });
+              console.log(`Successfully created PR #${pr.number}: ${pr.html_url}`);
+            }
+          } catch (error) {
+            console.error('Error creating/updating PR:', error);
+            throw error;
           }
 
   release:
