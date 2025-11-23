@@ -162,13 +162,11 @@ if [ "$SHELL_INTEGRATION_ADDED" = true ] && [ -n "$INSTALL_USER" ]; then
     echo "    luoking-box clear session docker"
     echo ""
     echo "  Note: Open a new terminal or run 'source ~/.bashrc' (or 'source ~/.zshrc') to activate."
+    echo "  Or simply run 'luoking-box enable session' - it will auto-load shell integration."
 else
     echo "Shell integration:"
-    echo "  To enable direct usage, add this to your ~/.bashrc or ~/.zshrc:"
+    echo "  Shell integration will be auto-loaded when you run 'luoking-box enable session'."
+    echo "  Or add this to your ~/.bashrc or ~/.zshrc for permanent activation:"
     echo "    [ -f /etc/profile.d/luoking-box.sh ] && source /etc/profile.d/luoking-box.sh"
-    echo ""
-    echo "  Then you can directly use:"
-    echo "    luoking-box enable session docker"
-    echo "    luoking-box clear session docker"
 fi
 
