@@ -306,11 +306,20 @@ clear_docker_proxy() {
 
 run_service() {
     # Original wrapper functionality
-    local config_file=$(get_sing_box_config)
-    if [ $? -ne 0 ]; then
+    local config_file
+    config_file=$(get_sing_box_config)
+    if [ $? -ne 0 ] || [ -z "$config_file" ]; then
+        echo "Error: Failed to get sing-box configuration file" >&2
         exit 1
     fi
 
+    # Validate config file exists
+    if [ ! -f "$config_file" ]; then
+        echo "Error: Configuration file not found: $config_file" >&2
+        exit 1
+    fi
+
+    # Run sing-box with the config file
     exec /usr/bin/sing-box "$@" -c "$config_file"
 }
 
@@ -374,17 +383,19 @@ case "${1:-}" in
             fi
         done
         
-        if [ "$has_session" = true ] && [ "$IS_SOURCED" = false ] && [ -t 1 ] && [ -n "${PS1:-}" ]; then
-            # Interactive shell, session target, but script is directly executed
+        if [ "$has_session" = true ] && [ "$IS_SOURCED" = false ]; then
+            # Session target, but script is directly executed
             # Check if shell function exists (shell integration loaded)
             if ! type luoking-box 2>/dev/null | grep -q "function\|shell function"; then
-                # Shell integration not loaded, try to auto-load it
+                # Shell integration not loaded, output eval command for user to execute
                 if [ -f /etc/profile.d/luoking-box.sh ]; then
-                    # Auto-load shell integration and re-execute through shell function
-                    # This allows "luoking-box enable session" to work in one command
-                    eval "$(cat /etc/profile.d/luoking-box.sh)"
-                    luoking-box enable "$@"
-                    exit $?
+                    # Output command that user can eval to load integration and execute
+                    echo "eval \"\$(cat /etc/profile.d/luoking-box.sh)\" && luoking-box enable $*" >&2
+                    echo "" >&2
+                    echo "Or restart your terminal (shell integration is auto-configured in ~/.bashrc or ~/.zshrc)" >&2
+                    # Still output the URL for reference
+                    enable_session_proxy 2>/dev/null || true
+                    exit 1
                 fi
             fi
         fi
