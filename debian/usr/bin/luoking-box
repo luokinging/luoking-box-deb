@@ -398,20 +398,32 @@ case "${1:-}" in
                         luoking-box enable "$@"
                         exit $?
                     else
-                        # Non-interactive shell: directly set environment variables
-                        # Get proxy URL (don't use local, we're not in a function)
+                        # Non-interactive shell: check if we're being called from shell function
+                        # If called from shell function (via $()), we should output URL to stdout
+                        # Otherwise, output instructions
                         proxy_url=$(enable_session_proxy 2>/dev/null)
                         if [ $? -eq 0 ] && [ -n "$proxy_url" ] && echo "$proxy_url" | grep -qE '^http://'; then
-                            # Output instructions for setting env vars (can't set in parent shell from script)
-                            echo "[proxy] Shell proxy enabled: $proxy_url" >&2
-                            echo "To use in this shell, run:" >&2
-                            echo "  export http_proxy=\"$proxy_url\"" >&2
-                            echo "  export https_proxy=\"$proxy_url\"" >&2
-                            echo "  export HTTP_PROXY=\"$proxy_url\"" >&2
-                            echo "  export HTTPS_PROXY=\"$proxy_url\"" >&2
-                            echo "Or source shell integration:" >&2
-                            echo "  source /etc/profile.d/luoking-box.sh && luoking-box enable session" >&2
-                            exit 0
+                            # Check if we're being called from a shell function (parent process might be bash)
+                            # If parent is bash and we're in a command substitution, output URL only
+                            # Otherwise, output instructions
+                            if [ -n "${BASH_VERSION:-}" ] && [ "${BASH_SUBSHELL:-0}" -gt 0 ]; then
+                                # Called from command substitution, output URL to stdout
+                                echo "$proxy_url"
+                                exit 0
+                            else
+                                # Direct call in non-interactive shell, output instructions
+                                echo "[proxy] Shell proxy enabled: $proxy_url" >&2
+                                echo "To use in this shell, run:" >&2
+                                echo "  export http_proxy=\"$proxy_url\"" >&2
+                                echo "  export https_proxy=\"$proxy_url\"" >&2
+                                echo "  export HTTP_PROXY=\"$proxy_url\"" >&2
+                                echo "  export HTTPS_PROXY=\"$proxy_url\"" >&2
+                                echo "Or source shell integration:" >&2
+                                echo "  source /etc/profile.d/luoking-box.sh && luoking-box enable session" >&2
+                                # Also output URL to stdout for compatibility
+                                echo "$proxy_url"
+                                exit 0
+                            fi
                         else
                             echo "Error: Failed to get proxy configuration" >&2
                             exit 1
