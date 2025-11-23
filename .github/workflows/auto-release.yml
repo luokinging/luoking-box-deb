@@ -82,54 +82,18 @@ jobs:
         
     - name: Create or update PR to production
       if: steps.check-commits.outputs.skip_auto_release == 'false'
-      uses: actions/github-script@v7
+      uses: peter-evans/create-pull-request@v6
       with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        script: |
-          console.log('Starting PR creation/update process...');
-          
-          try {
-            const { data: existingPRs } = await github.rest.pulls.list({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              head: `${context.repo.owner}:main`,
-              base: 'production',
-              state: 'open'
-            });
-            
-            console.log(`Found ${existingPRs.length} existing open PR(s)`);
-            
-            const prTitle = 'chore: auto-release patch update';
-            const prBody = 'This PR contains patch updates for auto-release.';
-            
-            if (existingPRs.length > 0) {
-              // Update existing PR
-              const pr = existingPRs[0];
-              console.log(`Updating existing PR #${pr.number}`);
-              await github.rest.pulls.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: pr.number,
-                body: prBody
-              });
-              console.log(`Successfully updated PR #${pr.number}`);
-            } else {
-              // Create new PR
-              console.log('Creating new PR...');
-              const { data: pr } = await github.rest.pulls.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title: prTitle,
-                head: 'main',
-                base: 'production',
-                body: prBody
-              });
-              console.log(`Successfully created PR #${pr.number}: ${pr.html_url}`);
-            }
-          } catch (error) {
-            console.error('Error creating/updating PR:', error);
-            throw error;
-          }
+        token: ${{ secrets.GITHUB_TOKEN }}
+        branch: main
+        base: production
+        title: 'chore: auto-release patch update'
+        body: 'This PR contains patch updates for auto-release.'
+        commit-message: 'chore: update for auto-release'
+        delete-branch: false
+        labels: |
+          automated
+          release
 
   release:
     runs-on: ubuntu-latest
