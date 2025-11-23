@@ -5,7 +5,8 @@ set -e
 # Usage: ./build-deb.sh
 
 PACKAGE_NAME="luoking-box"
-VERSION="1.0.0"
+# Read version from control file, fallback to default if not found
+VERSION=$(grep "^Version:" debian/DEBIAN/control 2>/dev/null | awk '{print $2}' || echo "1.0.0")
 ARCH="amd64"
 DEBIAN_DIR="debian"
 BUILD_DIR="build"

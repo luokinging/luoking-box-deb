@@ -1,0 +1,192 @@
+name: Auto Release
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [closed]
+    branches:
+      - production
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  create-pr:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: auto-release-pr
+      cancel-in-progress: false
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    - name: Check for breaking/feat commits in current push
+      id: check-commits
+      run: |
+        # Only check the HEAD commit (current push), not all history
+        # This ensures we only check what was just pushed
+        CURRENT_COMMIT=$(git log -1 --oneline)
+        
+        echo "Current commit: $CURRENT_COMMIT"
+        echo "Checking only the HEAD commit"
+        
+        # Extract commit message (skip commit hash)
+        MSG=$(echo "$CURRENT_COMMIT" | cut -d' ' -f2-)
+        echo "Commit message: $MSG"
+        
+        HAS_BREAKING=false
+        HAS_FEAT=false
+        
+        if echo "$MSG" | grep -qiE "BREAKING CHANGE|!:"; then
+          HAS_BREAKING=true
+          echo "  -> Found BREAKING CHANGE"
+        elif echo "$MSG" | grep -qiE "^feat"; then
+          HAS_FEAT=true
+          echo "  -> Found feat commit"
+        fi
+        
+        if [ "$HAS_BREAKING" = true ] || [ "$HAS_FEAT" = true ]; then
+          echo "skip_auto_release=true" >> $GITHUB_OUTPUT
+          echo "Found breaking or feat commits in current push, skipping auto-release"
+        else
+          echo "skip_auto_release=false" >> $GITHUB_OUTPUT
+          echo "No breaking or feat commits in current push, proceeding with auto-release"
+        fi
+        
+    - name: Debug check-commits output
+      run: |
+        echo "skip_auto_release value: ${{ steps.check-commits.outputs.skip_auto_release }}"
+        echo "Will create PR: ${{ steps.check-commits.outputs.skip_auto_release == 'false' }}"
+        
+    - name: Create or update PR to production
+      if: steps.check-commits.outputs.skip_auto_release == 'false'
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          console.log('Starting PR creation/update process...');
+          
+          try {
+            const { data: existingPRs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: `${context.repo.owner}:main`,
+              base: 'production',
+              state: 'open'
+            });
+            
+            console.log(`Found ${existingPRs.length} existing open PR(s)`);
+            
+            const prTitle = 'chore: auto-release patch update';
+            const prBody = 'This PR contains patch updates for auto-release.';
+            
+            if (existingPRs.length > 0) {
+              // Update existing PR
+              const pr = existingPRs[0];
+              console.log(`Updating existing PR #${pr.number}`);
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                body: prBody
+              });
+              console.log(`Successfully updated PR #${pr.number}`);
+            } else {
+              // Create new PR
+              console.log('Creating new PR...');
+              const { data: pr } = await github.rest.pulls.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: prTitle,
+                head: 'main',
+                base: 'production',
+                body: prBody
+              });
+              console.log(`Successfully created PR #${pr.number}: ${pr.html_url}`);
+            }
+          } catch (error) {
+            console.error('Error creating/updating PR:', error);
+            throw error;
+          }
+
+  release:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.merged == true &&
+      contains(github.event.pull_request.title, 'chore: auto-release patch update')
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: production
+        fetch-depth: 0
+        
+    - name: Get current version
+      id: version
+      run: |
+        CURRENT_VERSION=$(grep "^Version:" debian/DEBIAN/control | awk '{print $2}')
+        echo "Current version: $CURRENT_VERSION"
+        
+        # Increment patch version (1.0.0 -> 1.0.1)
+        IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
+        PATCH=$((PATCH + 1))
+        NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+        
+        echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+        echo "tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
+        echo "New version: $NEW_VERSION"
+        
+    - name: Update version in control file
+      run: |
+        sed -i "s/^Version:.*/Version: ${{ steps.version.outputs.version }}/" debian/DEBIAN/control
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add debian/DEBIAN/control
+        git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
+        git push origin production
+        
+    - name: Create tag
+      run: |
+        git tag ${{ steps.version.outputs.tag }}
+        git push origin ${{ steps.version.outputs.tag }}
+        
+    - name: Build Debian package
+      run: |
+        docker run --rm \
+          --platform linux/amd64 \
+          -v ${{ github.workspace }}:/workspace \
+          -w /workspace \
+          ubuntu:22.04 \
+          bash -c "
+            apt-get update -qq
+            apt-get install -y -qq dpkg-dev
+            ./script/build-deb.sh
+          "
+          
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: build/*.deb
+        tag_name: ${{ steps.version.outputs.tag }}
+        name: luoking-box ${{ steps.version.outputs.version }}
+        body: |
+          ## luoking-box ${{ steps.version.outputs.version }}
+          
+          ### Installation
+          ```bash
+          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/luoking-box_${{ steps.version.outputs.version }}_amd64.deb
+          sudo apt install ./luoking-box_${{ steps.version.outputs.version }}_amd64.deb
+          ```
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

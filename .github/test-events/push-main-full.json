@@ -1,0 +1,18 @@
+{
+  "ref": "refs/heads/main",
+  "head_commit": {
+    "message": "Merge pull request #1 from feature-branch",
+    "id": "abc123"
+  },
+  "repository": {
+    "name": "luoking-box-deb",
+    "full_name": "luokinging/luoking-box-deb",
+    "owner": {
+      "login": "luokinging",
+      "name": "luokinging"
+    }
+  },
+  "pusher": {
+    "name": "test-user"
+  }
+}
