@@ -197,14 +197,8 @@ enable_session_proxy() {
         return 0
     fi
 
-    # If not sourced, output helpful message and URL
-    # The shell integration script will handle setting environment variables
-    # Output helpful message to stderr first, then URL to stdout
-    echo "Note: To enable proxy in your shell, run:" >&2
-    echo "  source /etc/profile.d/luoking-box.sh" >&2
-    echo "Then use: luoking-box enable session" >&2
-    echo "" >&2
-    # Output URL to stdout (for shell integration script to capture)
+    # If not sourced, output URL (shell integration script will handle setting env vars)
+    # The shell integration wrapper function will intercept this call and set env vars
     echo "$proxy_url"
     
     # Save state
@@ -352,10 +346,6 @@ Examples:
     # Clear both
     luoking-box clear session docker
 
-Note: For session proxy to work, you need to source the shell integration:
-    source /etc/profile.d/luoking-box.sh
-    
-    Or restart your terminal (it's automatically added to ~/.bashrc or ~/.zshrc).
 
 EOF
 }
@@ -372,6 +362,31 @@ case "${1:-}" in
             echo "Error: No target specified for 'enable'" >&2
             show_usage
             exit 1
+        fi
+        
+        # Check if session is in targets and we're in interactive shell
+        # If shell integration is not loaded, auto-load it and re-execute
+        has_session=false
+        for target in "$@"; do
+            if [ "$target" = "session" ]; then
+                has_session=true
+                break
+            fi
+        done
+        
+        if [ "$has_session" = true ] && [ "$IS_SOURCED" = false ] && [ -t 1 ] && [ -n "${PS1:-}" ]; then
+            # Interactive shell, session target, but script is directly executed
+            # Check if shell function exists (shell integration loaded)
+            if ! type luoking-box 2>/dev/null | grep -q "function\|shell function"; then
+                # Shell integration not loaded, try to auto-load it
+                if [ -f /etc/profile.d/luoking-box.sh ]; then
+                    # Auto-load shell integration and re-execute through shell function
+                    # This allows "luoking-box enable session" to work in one command
+                    eval "$(cat /etc/profile.d/luoking-box.sh)"
+                    luoking-box enable "$@"
+                    exit $?
+                fi
+            fi
         fi
         
         # Validate all targets first
