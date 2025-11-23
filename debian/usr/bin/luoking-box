@@ -324,6 +324,17 @@ run_service() {
     exec /usr/bin/sing-box run "$@" -c "$config_file"
 }
 
+get_version() {
+    # Get version from saved file (set during installation)
+    if [ -f /etc/luoking-box/.version ]; then
+        cat /etc/luoking-box/.version
+    elif command -v dpkg >/dev/null 2>&1; then
+        dpkg -l luoking-box 2>/dev/null | grep "^ii" | awk '{print $3}' || echo "unknown"
+    else
+        echo "unknown"
+    fi
+}
+
 show_usage() {
     cat << EOF
 luoking-box - luoking-box service and proxy management tool
@@ -332,6 +343,7 @@ Usage:
     luoking-box run [OPTIONS]              Run sing-box service (used by systemd)
     luoking-box enable <target> [target...] Enable proxy for target(s)
     luoking-box clear <target> [target...]  Clear proxy for target(s)
+    luoking-box -v, --version              Show version information
 
 Targets:
     session                                 Current shell session
@@ -355,6 +367,9 @@ Examples:
     
     # Clear both
     luoking-box clear session docker
+    
+    # Show version
+    luoking-box -v
 
 
 EOF
@@ -500,6 +515,11 @@ case "${1:-}" in
                     ;;
             esac
         done
+        ;;
+    -v|--version)
+        VERSION=$(get_version)
+        echo "luoking-box version $VERSION"
+        exit 0
         ;;
     ""|help|--help|-h)
         show_usage
