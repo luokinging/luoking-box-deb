@@ -22,25 +22,25 @@ jobs:
       with:
         fetch-depth: 0
         
-    - name: Check for breaking/feat commits
+    - name: Check for breaking/feat commits in current push
       id: check-commits
       run: |
-        # Get commits since last tag or from beginning
-        LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-        echo "Last tag: ${LAST_TAG:-none}"
+        # Only check commits in the current push, not all history
+        # Get the previous commit SHA (before this push)
+        PREV_SHA="${{ github.event.before }}"
+        CURRENT_SHA="${{ github.event.after }}"
         
-        if [ -z "$LAST_TAG" ]; then
-          # If no tag, check commits since production branch
-          if git rev-parse --verify origin/production >/dev/null 2>&1; then
-            COMMITS=$(git log origin/production..HEAD --oneline)
-            echo "Checking commits since production branch"
-          else
-            COMMITS=$(git log --oneline -10)
-            echo "No production branch found, checking last 10 commits"
-          fi
+        echo "Previous SHA: ${PREV_SHA:-none}"
+        echo "Current SHA: $CURRENT_SHA"
+        
+        if [ -z "$PREV_SHA" ] || [ "$PREV_SHA" = "0000000000000000000000000000000000000000" ]; then
+          # First push or no previous commit, check only the current commit
+          COMMITS=$(git log -1 --oneline)
+          echo "Checking only current commit (first push)"
         else
-          COMMITS=$(git log ${LAST_TAG}..HEAD --oneline)
-          echo "Checking commits since tag $LAST_TAG"
+          # Check commits between previous and current
+          COMMITS=$(git log ${PREV_SHA}..${CURRENT_SHA} --oneline)
+          echo "Checking commits in current push"
         fi
         
         echo "Commits to check:"
@@ -64,10 +64,10 @@ jobs:
         
         if [ "$HAS_BREAKING" = true ] || [ "$HAS_FEAT" = true ]; then
           echo "skip_auto_release=true" >> $GITHUB_OUTPUT
-          echo "Found breaking or feat commits, skipping auto-release"
+          echo "Found breaking or feat commits in current push, skipping auto-release"
         else
           echo "skip_auto_release=false" >> $GITHUB_OUTPUT
-          echo "No breaking or feat commits found, proceeding with auto-release"
+          echo "No breaking or feat commits in current push, proceeding with auto-release"
         fi
         
     - name: Debug check-commits output
