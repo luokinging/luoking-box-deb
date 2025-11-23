@@ -175,11 +175,66 @@ fi
 # loaded for login shells. For non-login interactive shells, users need to have
 # it in their ~/.bashrc or ~/.zshrc (which we just added above).
 
+# Auto-start service if configuration is valid
+AUTO_STARTED=false
+if command -v systemctl >/dev/null 2>&1 && systemctl >/dev/null 2>&1; then
+    # Check if sing-box is available
+    if [ -f /usr/bin/sing-box ]; then
+        # Get active config
+        ACTIVE_CONFIG=$(grep -o '"active_config"[[:space:]]*:[[:space:]]*"[^"]*"' /etc/luoking-box/config.json 2>/dev/null | cut -d'"' -f4 || echo "")
+        
+        if [ -n "$ACTIVE_CONFIG" ] && [ -f "/etc/luoking-box/sing-box-config/${ACTIVE_CONFIG}.json" ]; then
+            CONFIG_FILE="/etc/luoking-box/sing-box-config/${ACTIVE_CONFIG}.json"
+            
+            # Check configuration syntax
+            if /usr/bin/sing-box check -c "$CONFIG_FILE" >/dev/null 2>&1; then
+                # Check if config has valid inbounds and outbounds
+                HAS_INBOUNDS=false
+                HAS_OUTBOUNDS=false
+                
+                # Use python3 if available for JSON parsing
+                if command -v python3 >/dev/null 2>&1; then
+                    INBOUNDS_COUNT=$(python3 -c "import json; f=open('$CONFIG_FILE'); c=json.load(f); print(len(c.get('inbounds', [])))" 2>/dev/null || echo "0")
+                    OUTBOUNDS_COUNT=$(python3 -c "import json; f=open('$CONFIG_FILE'); c=json.load(f); print(len(c.get('outbounds', [])))" 2>/dev/null || echo "0")
+                    
+                    if [ "$INBOUNDS_COUNT" -gt 0 ] && [ "$OUTBOUNDS_COUNT" -gt 0 ]; then
+                        HAS_INBOUNDS=true
+                        HAS_OUTBOUNDS=true
+                    fi
+                else
+                    # Fallback to grep-based check
+                    if grep -q '"inbounds"[[:space:]]*:[[:space:]]*\[' "$CONFIG_FILE" 2>/dev/null && \
+                       grep -q '"outbounds"[[:space:]]*:[[:space:]]*\[' "$CONFIG_FILE" 2>/dev/null; then
+                        # Check if arrays are not empty (have at least one element)
+                        if grep -A 10 '"inbounds"' "$CONFIG_FILE" 2>/dev/null | grep -q '{' && \
+                           grep -A 10 '"outbounds"' "$CONFIG_FILE" 2>/dev/null | grep -q '{'; then
+                            HAS_INBOUNDS=true
+                            HAS_OUTBOUNDS=true
+                        fi
+                    fi
+                fi
+                
+                # Auto-start if configuration is valid
+                if [ "$HAS_INBOUNDS" = true ] && [ "$HAS_OUTBOUNDS" = true ]; then
+                    if systemctl start luoking-box >/dev/null 2>&1; then
+                        AUTO_STARTED=true
+                        echo "✓ Configuration is valid, service has been automatically started."
+                    fi
+                fi
+            fi
+        fi
+    fi
+fi
+
 echo ""
 echo "luoking-box has been installed successfully!"
 echo ""
-echo "To start the service (for local proxy):"
-echo "  sudo systemctl start luoking-box"
+if [ "$AUTO_STARTED" = true ]; then
+    echo "✓ Service is running (auto-started due to valid configuration)"
+else
+    echo "To start the service (for local proxy):"
+    echo "  sudo systemctl start luoking-box"
+fi
 echo ""
 echo "Configuration files:"
 echo "  Main config: /etc/luoking-box/config.json"

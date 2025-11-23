@@ -28,46 +28,7 @@ jobs:
       with:
         fetch-depth: 0
         
-    - name: Check for breaking/feat commits in current push
-      id: check-commits
-      run: |
-        # Only check the HEAD commit (current push), not all history
-        # This ensures we only check what was just pushed
-        CURRENT_COMMIT=$(git log -1 --oneline)
-        
-        echo "Current commit: $CURRENT_COMMIT"
-        echo "Checking only the HEAD commit"
-        
-        # Extract commit message (skip commit hash)
-        MSG=$(echo "$CURRENT_COMMIT" | cut -d' ' -f2-)
-        echo "Commit message: $MSG"
-        
-        HAS_BREAKING=false
-        HAS_FEAT=false
-        
-        if echo "$MSG" | grep -qiE "BREAKING CHANGE|!:"; then
-          HAS_BREAKING=true
-          echo "  -> Found BREAKING CHANGE"
-        elif echo "$MSG" | grep -qiE "^feat"; then
-          HAS_FEAT=true
-          echo "  -> Found feat commit"
-        fi
-        
-        if [ "$HAS_BREAKING" = true ] || [ "$HAS_FEAT" = true ]; then
-          echo "skip_auto_release=true" >> $GITHUB_OUTPUT
-          echo "Found breaking or feat commits in current push, skipping auto-release"
-        else
-          echo "skip_auto_release=false" >> $GITHUB_OUTPUT
-          echo "No breaking or feat commits in current push, proceeding with auto-release"
-        fi
-        
-    - name: Debug check-commits output
-      run: |
-        echo "skip_auto_release value: ${{ steps.check-commits.outputs.skip_auto_release }}"
-        echo "Will create PR: ${{ steps.check-commits.outputs.skip_auto_release == 'false' }}"
-        
     - name: Create or update PR to production
-      if: steps.check-commits.outputs.skip_auto_release == 'false'
       uses: actions/github-script@v7
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
