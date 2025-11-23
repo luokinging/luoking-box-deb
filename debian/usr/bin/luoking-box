@@ -320,7 +320,8 @@ run_service() {
     fi
 
     # Run sing-box with the config file
-    exec /usr/bin/sing-box "$@" -c "$config_file"
+    # Pass "run" subcommand and any additional arguments, then config file
+    exec /usr/bin/sing-box run "$@" -c "$config_file"
 }
 
 show_usage() {
