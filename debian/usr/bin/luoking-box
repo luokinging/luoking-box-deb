@@ -388,12 +388,19 @@ case "${1:-}" in
             # Session target, but script is directly executed
             # Check if shell function exists (shell integration loaded)
             if ! type luoking-box 2>/dev/null | grep -q "function\|shell function"; then
-                # Shell integration not loaded, output eval command for user to execute
+                # Shell integration not loaded, try to auto-load it
                 if [ -f /etc/profile.d/luoking-box.sh ]; then
-                    # Output command that user can eval to load integration and execute
-                    echo "eval \"\$(cat /etc/profile.d/luoking-box.sh)\" && luoking-box enable $*" >&2
-                    echo "" >&2
-                    echo "Or restart your terminal (shell integration is auto-configured in ~/.bashrc or ~/.zshrc)" >&2
+                    # Auto-load shell integration and re-execute
+                    # Use eval to source the script in current shell context
+                    eval "$(cat /etc/profile.d/luoking-box.sh)"
+                    # Re-execute the command with shell function
+                    luoking-box enable "$@"
+                    exit $?
+                else
+                    # Shell integration file not found
+                    echo "Error: Shell integration not available" >&2
+                    echo "Please add this to your ~/.bashrc or ~/.zshrc:" >&2
+                    echo "  [ -f /etc/profile.d/luoking-box.sh ] && source /etc/profile.d/luoking-box.sh" >&2
                     # Still output the URL for reference
                     enable_session_proxy 2>/dev/null || true
                     exit 1
