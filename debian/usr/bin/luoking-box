@@ -197,19 +197,15 @@ enable_session_proxy() {
         return 0
     fi
 
-    # If not sourced, check if running in interactive shell
-    # If yes, output function definition; if no, just output URL
-    if [ -t 0 ] && [ -n "$PS1" ]; then
-        # Interactive shell - output helpful message
-        echo "[proxy] Shell proxy configuration: $proxy_url" >&2
-        echo "[proxy] To enable proxy, add this to your ~/.bashrc or ~/.zshrc:" >&2
-        echo "  source /etc/profile.d/luoking-box.sh" >&2
-        echo "[proxy] Then run: luoking-box enable session" >&2
-        echo "$proxy_url"
-    else
-        # Non-interactive - just output URL (for scripts/functions)
-        echo "$proxy_url"
-    fi
+    # If not sourced, output helpful message and URL
+    # The shell integration script will handle setting environment variables
+    # Output helpful message to stderr first, then URL to stdout
+    echo "Note: To enable proxy in your shell, run:" >&2
+    echo "  source /etc/profile.d/luoking-box.sh" >&2
+    echo "Then use: luoking-box enable session" >&2
+    echo "" >&2
+    # Output URL to stdout (for shell integration script to capture)
+    echo "$proxy_url"
     
     # Save state
     echo "$proxy_url" > "$PROXY_STATE_DIR/session_proxy"
@@ -338,32 +334,28 @@ Targets:
     docker                                  Docker daemon
 
 Examples:
-    # Enable proxy for current shell (use source to apply)
-    source <(luoking-box enable session)
+    # Enable proxy for current shell session
+    luoking-box enable session
     
     # Enable proxy for Docker daemon
     luoking-box enable docker
     
     # Enable proxy for both session and docker
-    source <(luoking-box enable session) && luoking-box enable docker
-    
-    # Or enable multiple targets at once
-    source <(luoking-box enable session docker)
+    luoking-box enable session docker
     
     # Clear shell proxy
-    source <(luoking-box clear session)
+    luoking-box clear session
     
     # Clear Docker proxy
     luoking-box clear docker
     
     # Clear both
-    source <(luoking-box clear session docker)
+    luoking-box clear session docker
 
-Note: For session proxy, use 'source <(luoking-box enable session)' to apply
-changes to your current shell. Alternatively, you can create shell functions:
-
-    proxy() { source <(luoking-box enable session); }
-    noproxy() { source <(luoking-box clear session); }
+Note: For session proxy to work, you need to source the shell integration:
+    source /etc/profile.d/luoking-box.sh
+    
+    Or restart your terminal (it's automatically added to ~/.bashrc or ~/.zshrc).
 
 EOF
 }
