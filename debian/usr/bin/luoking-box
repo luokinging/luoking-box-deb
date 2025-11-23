@@ -1,0 +1,454 @@
+#!/bin/bash
+# luoking-box - Main command script for luoking-box service and proxy management
+
+# Detect if script is being sourced (for session proxy support)
+# When sourced: ${BASH_SOURCE[0]} != $0 or $0 == "-bash"/"-zsh"
+IS_SOURCED=false
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]] || [[ "$0" == -* ]]; then
+    IS_SOURCED=true
+fi
+
+# Only use set -e when not sourced (to avoid exiting parent shell)
+if [ "$IS_SOURCED" = false ]; then
+    set -e
+fi
+
+# Configuration paths (can be overridden by environment variables)
+CONFIG_FILE=${CONFIG_FILE:-/etc/luoking-box/config.json}
+CONFIG_DIR=${CONFIG_DIR:-/etc/luoking-box/sing-box-config}
+PROXY_STATE_DIR=${PROXY_STATE_DIR:-/var/lib/luoking-box}
+
+# Ensure state directory exists
+mkdir -p "$PROXY_STATE_DIR"
+
+# ============================================================================
+# Utility Functions
+# ============================================================================
+
+# Get active config name from config.json
+get_active_config() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo "Error: $CONFIG_FILE not found" >&2
+        return 1
+    fi
+
+    local result
+    if command -v python3 >/dev/null 2>&1; then
+        result=$(python3 -c "import json, sys; print(json.load(sys.stdin)['active_config'])" < "$CONFIG_FILE" 2>/dev/null)
+    else
+        result=$(grep -o '"active_config"[[:space:]]*:[[:space:]]*"[^"]*"' "$CONFIG_FILE" | cut -d'"' -f4)
+    fi
+    
+    if [ -z "$result" ]; then
+        echo "Error: 'active_config' not found in $CONFIG_FILE" >&2
+        return 1
+    fi
+    
+    echo "$result"
+    return 0
+}
+
+# Get sing-box config file path
+get_sing_box_config() {
+    local active_config
+    active_config=$(get_active_config 2>/dev/null)
+    if [ $? -ne 0 ] || [ -z "$active_config" ]; then
+        echo "Error: 'active_config' not found or invalid in $CONFIG_FILE" >&2
+        return 1
+    fi
+
+    local config_path="$CONFIG_DIR/$active_config.json"
+    if [ ! -f "$config_path" ]; then
+        echo "Error: Configuration file not found: $config_path" >&2
+        echo "Please ensure the file exists in $CONFIG_DIR/" >&2
+        return 1
+    fi
+
+    echo "$config_path"
+    return 0
+}
+
+# Extract mixed proxy configuration from sing-box config
+# Returns: host:port format (e.g., 127.0.0.1:8890)
+get_mixed_proxy_config() {
+    local config_file=$(get_sing_box_config)
+    if [ $? -ne 0 ]; then
+        return 1
+    fi
+
+    # Try to use python3 for JSON parsing if available
+    if command -v python3 >/dev/null 2>&1; then
+        local result
+        local python_exit
+        local python_err
+        
+        # Run python script, capture stdout to result, stderr to python_err, exit code separately
+        # Use double quotes to allow variable expansion for config_file
+        result=$(python3 << PYEOF 2> /tmp/python_err_$$
+import json
+import sys
+
+try:
+    with open("$config_file", "r") as f:
+        config = json.load(f)
+    
+    inbounds = config.get("inbounds", [])
+    for inbound in inbounds:
+        if inbound.get("type") == "mixed":
+            listen = inbound.get("listen", "127.0.0.1")
+            listen_port = inbound.get("listen_port", 0)
+            if listen_port > 0:
+                print(f"{listen}:{listen_port}")
+                sys.exit(0)
+    
+    print("Error: No 'mixed' type inbound found in configuration", file=sys.stderr)
+    sys.exit(1)
+except Exception as e:
+    print(f"Error parsing config: {e}", file=sys.stderr)
+    sys.exit(1)
+PYEOF
+)
+        python_exit=$?
+        python_err=$(cat /tmp/python_err_$$ 2>/dev/null || echo "")
+        rm -f /tmp/python_err_$$ 2>/dev/null
+        
+        if [ $python_exit -eq 0 ] && [ -n "$result" ] && echo "$result" | grep -qE '^[0-9.]+:[0-9]+$'; then
+            echo "$result"
+            return 0
+        else
+            # Output error message if any (always output to stderr)
+            if [ -n "$python_err" ]; then
+                echo "$python_err" >&2
+            else
+                # Fallback error message if python didn't output anything
+                echo "Error: No 'mixed' type inbound found in configuration" >&2
+            fi
+            return 1
+        fi
+    fi
+
+    # Fallback: use grep and awk (less reliable but works)
+    local listen=$(grep -A 10 '"type"[[:space:]]*:[[:space:]]*"mixed"' "$config_file" 2>/dev/null | \
+                   grep -o '"listen"[[:space:]]*:[[:space:]]*"[^"]*"' | \
+                   head -1 | cut -d'"' -f4)
+    local listen_port=$(grep -A 10 '"type"[[:space:]]*:[[:space:]]*"mixed"' "$config_file" 2>/dev/null | \
+                       grep -o '"listen_port"[[:space:]]*:[[:space:]]*[0-9]*' | \
+                       head -1 | grep -o '[0-9]*')
+
+    if [ -n "$listen" ] && [ -n "$listen_port" ] && [ "$listen_port" -gt 0 ]; then
+        echo "$listen:$listen_port"
+        return 0
+    fi
+
+    echo "Error: No 'mixed' type inbound found in configuration" >&2
+    return 1
+}
+
+# ============================================================================
+# Session Proxy Functions
+# ============================================================================
+
+enable_session_proxy() {
+    local proxy_config
+    local temp_err
+    # Capture stdout to proxy_config, stderr to temp_err, then output stderr
+    temp_err=$(mktemp)
+    proxy_config=$(get_mixed_proxy_config 2>"$temp_err")
+    local exit_code=$?
+    # Output error message if any
+    [ -s "$temp_err" ] && cat "$temp_err" >&2
+    rm -f "$temp_err"
+    
+    # If function failed, return immediately (error already printed to stderr)
+    if [ $exit_code -ne 0 ]; then
+        return 1
+    fi
+    
+    # Validate proxy_config is not empty and has correct format
+    if [ -z "$proxy_config" ] || ! echo "$proxy_config" | grep -qE '^[0-9a-zA-Z.]+:[0-9]+$'; then
+        echo "Error: Invalid proxy configuration format" >&2
+        return 1
+    fi
+
+    local proxy_host=$(echo "$proxy_config" | cut -d':' -f1)
+    local proxy_port=$(echo "$proxy_config" | cut -d':' -f2)
+    
+    # Validate host and port
+    if [ -z "$proxy_host" ] || [ -z "$proxy_port" ] || [ "$proxy_port" -le 0 ] 2>/dev/null; then
+        echo "Error: Invalid proxy host or port" >&2
+        return 1
+    fi
+    
+    local proxy_url="http://$proxy_host:$proxy_port"
+
+    # If script is sourced, directly set environment variables
+    if [ "$IS_SOURCED" = true ]; then
+        export http_proxy="$proxy_url"
+        export https_proxy="$proxy_url"
+        export HTTP_PROXY="$proxy_url"
+        export HTTPS_PROXY="$proxy_url"
+        export all_proxy="$proxy_url"
+        export ALL_PROXY="$proxy_url"
+        
+        # Save state
+        echo "$proxy_url" > "$PROXY_STATE_DIR/session_proxy"
+        
+        echo "[proxy] Shell proxy enabled: $proxy_url"
+        return 0
+    fi
+
+    # If not sourced, check if running in interactive shell
+    # If yes, output function definition; if no, just output URL
+    if [ -t 0 ] && [ -n "$PS1" ]; then
+        # Interactive shell - output helpful message
+        echo "[proxy] Shell proxy configuration: $proxy_url" >&2
+        echo "[proxy] To enable proxy, add this to your ~/.bashrc or ~/.zshrc:" >&2
+        echo "  source /etc/profile.d/luoking-box.sh" >&2
+        echo "[proxy] Then run: luoking-box enable session" >&2
+        echo "$proxy_url"
+    else
+        # Non-interactive - just output URL (for scripts/functions)
+        echo "$proxy_url"
+    fi
+    
+    # Save state
+    echo "$proxy_url" > "$PROXY_STATE_DIR/session_proxy"
+    
+    return 0
+}
+
+clear_session_proxy() {
+    # If script is sourced, directly unset environment variables
+    if [ "$IS_SOURCED" = true ]; then
+        unset http_proxy https_proxy all_proxy
+        unset HTTP_PROXY HTTPS_PROXY ALL_PROXY
+        
+        # Remove state file
+        rm -f "$PROXY_STATE_DIR/session_proxy"
+        
+        echo "[noproxy] Shell proxy cleared."
+        return 0
+    fi
+
+    # If not sourced, just remove state file (shell function will handle unset)
+    rm -f "$PROXY_STATE_DIR/session_proxy"
+    
+    return 0
+}
+
+# ============================================================================
+# Docker Proxy Functions
+# ============================================================================
+
+enable_docker_proxy() {
+    local proxy_config
+    local temp_err
+    # Capture stdout to proxy_config, stderr to temp_err, then output stderr
+    temp_err=$(mktemp)
+    proxy_config=$(get_mixed_proxy_config 2>"$temp_err")
+    local exit_code=$?
+    # Output error message if any
+    [ -s "$temp_err" ] && cat "$temp_err" >&2
+    rm -f "$temp_err"
+    
+    # If function failed, return immediately (error already printed to stderr)
+    if [ $exit_code -ne 0 ]; then
+        return 1
+    fi
+    
+    # Validate proxy_config is not empty and has correct format
+    if [ -z "$proxy_config" ] || ! echo "$proxy_config" | grep -qE '^[0-9a-zA-Z.]+:[0-9]+$'; then
+        echo "Error: Invalid proxy configuration format" >&2
+        return 1
+    fi
+
+    local proxy_host=$(echo "$proxy_config" | cut -d':' -f1)
+    local proxy_port=$(echo "$proxy_config" | cut -d':' -f2)
+    
+    # Validate host and port
+    if [ -z "$proxy_host" ] || [ -z "$proxy_port" ] || [ "$proxy_port" -le 0 ] 2>/dev/null; then
+        echo "Error: Invalid proxy host or port" >&2
+        return 1
+    fi
+    
+    local proxy_url="http://$proxy_host:$proxy_port"
+
+    echo "[proxy] Configuring Docker daemon proxy..."
+
+    # Create systemd override directory
+    sudo mkdir -p /etc/systemd/system/docker.service.d
+
+    # Write proxy configuration
+    sudo tee /etc/systemd/system/docker.service.d/http-proxy.conf >/dev/null << EOF
+[Service]
+Environment="HTTP_PROXY=$proxy_url"
+Environment="HTTPS_PROXY=$proxy_url"
+Environment="NO_PROXY=localhost,127.0.0.1,::1"
+EOF
+
+    # Save state
+    echo "$proxy_url" > "$PROXY_STATE_DIR/docker_proxy"
+
+    echo "[proxy] Docker proxy configuration written."
+    echo "Note: Docker service has not been restarted."
+    echo "To apply changes, run:"
+    echo "  sudo systemctl daemon-reload && sudo systemctl restart docker"
+}
+
+clear_docker_proxy() {
+    echo "[noproxy] Removing Docker daemon proxy configuration..."
+
+    # Remove proxy configuration file
+    sudo rm -f /etc/systemd/system/docker.service.d/http-proxy.conf
+
+    # Remove state file
+    rm -f "$PROXY_STATE_DIR/docker_proxy"
+
+    echo "[noproxy] Docker proxy configuration removed."
+    echo "Note: Docker service has not been restarted."
+    echo "To apply changes, run:"
+    echo "  sudo systemctl daemon-reload && sudo systemctl restart docker"
+}
+
+# ============================================================================
+# Main Command Handler
+# ============================================================================
+
+run_service() {
+    # Original wrapper functionality
+    local config_file=$(get_sing_box_config)
+    if [ $? -ne 0 ]; then
+        exit 1
+    fi
+
+    exec /usr/bin/sing-box "$@" -c "$config_file"
+}
+
+show_usage() {
+    cat << EOF
+luoking-box - luoking-box service and proxy management tool
+
+Usage:
+    luoking-box run [OPTIONS]              Run sing-box service (used by systemd)
+    luoking-box enable <target> [target...] Enable proxy for target(s)
+    luoking-box clear <target> [target...]  Clear proxy for target(s)
+
+Targets:
+    session                                 Current shell session
+    docker                                  Docker daemon
+
+Examples:
+    # Enable proxy for current shell (use source to apply)
+    source <(luoking-box enable session)
+    
+    # Enable proxy for Docker daemon
+    luoking-box enable docker
+    
+    # Enable proxy for both session and docker
+    source <(luoking-box enable session) && luoking-box enable docker
+    
+    # Or enable multiple targets at once
+    source <(luoking-box enable session docker)
+    
+    # Clear shell proxy
+    source <(luoking-box clear session)
+    
+    # Clear Docker proxy
+    luoking-box clear docker
+    
+    # Clear both
+    source <(luoking-box clear session docker)
+
+Note: For session proxy, use 'source <(luoking-box enable session)' to apply
+changes to your current shell. Alternatively, you can create shell functions:
+
+    proxy() { source <(luoking-box enable session); }
+    noproxy() { source <(luoking-box clear session); }
+
+EOF
+}
+
+# Main command dispatcher
+case "${1:-}" in
+    run)
+        shift
+        run_service "$@"
+        ;;
+    enable)
+        shift
+        if [ $# -eq 0 ]; then
+            echo "Error: No target specified for 'enable'" >&2
+            show_usage
+            exit 1
+        fi
+        
+        # Validate all targets first
+        valid_targets="session docker"
+        for target in "$@"; do
+            case "$valid_targets" in
+                *"$target"*)
+                    ;;
+                *)
+                    echo "Error: Unknown target '$target'" >&2
+                    echo "Valid targets: session, docker" >&2
+                    exit 1
+                    ;;
+            esac
+        done
+        
+        # Process targets
+        for target in "$@"; do
+            case "$target" in
+                session)
+                    enable_session_proxy || exit 1
+                    ;;
+                docker)
+                    enable_docker_proxy || exit 1
+                    ;;
+            esac
+        done
+        ;;
+    clear)
+        shift
+        if [ $# -eq 0 ]; then
+            echo "Error: No target specified for 'clear'" >&2
+            show_usage
+            exit 1
+        fi
+        
+        # Validate all targets first
+        valid_targets="session docker"
+        for target in "$@"; do
+            case "$valid_targets" in
+                *"$target"*)
+                    ;;
+                *)
+                    echo "Error: Unknown target '$target'" >&2
+                    echo "Valid targets: session, docker" >&2
+                    exit 1
+                    ;;
+            esac
+        done
+        
+        # Process targets
+        for target in "$@"; do
+            case "$target" in
+                session)
+                    clear_session_proxy || exit 1
+                    ;;
+                docker)
+                    clear_docker_proxy || exit 1
+                    ;;
+            esac
+        done
+        ;;
+    ""|help|--help|-h)
+        show_usage
+        ;;
+    *)
+        echo "Error: Unknown command '$1'" >&2
+        show_usage
+        exit 1
+        ;;
+esac
+

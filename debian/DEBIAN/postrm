@@ -8,6 +8,34 @@ if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
     fi
 fi
 
+# Clean up proxy configurations and state files
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    # Remove Docker proxy configuration if exists
+    if [ -f /etc/systemd/system/docker.service.d/http-proxy.conf ]; then
+        echo "Removing Docker proxy configuration..."
+        rm -f /etc/systemd/system/docker.service.d/http-proxy.conf || true
+        # Reload systemd if docker service exists
+        if command -v systemctl >/dev/null 2>&1 && systemctl >/dev/null 2>&1; then
+            if systemctl list-units --type=service | grep -q docker.service; then
+                systemctl daemon-reload || true
+                echo "Note: Docker service may need to be restarted manually"
+            fi
+        fi
+    fi
+
+    # Remove state directory
+    if [ -d /var/lib/luoking-box ]; then
+        echo "Removing state directory /var/lib/luoking-box..."
+        rm -rf /var/lib/luoking-box
+    fi
+
+    # Remove old wrapper script if exists (for compatibility)
+    if [ -f /usr/bin/luoking-box-wrapper ]; then
+        echo "Removing old wrapper script..."
+        rm -f /usr/bin/luoking-box-wrapper || true
+    fi
+fi
+
 # Remove config files and log directory only on purge
 if [ "$1" = "purge" ]; then
     if [ -d /etc/luoking-box ]; then

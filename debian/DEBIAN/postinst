@@ -68,6 +68,80 @@ EOF
     echo "Please configure it before starting the service."
 fi
 
+# Auto-configure shell integration for users
+add_shell_integration() {
+    local user_home="$1"
+    local shell_rc="$2"
+    
+    if [ -z "$shell_rc" ] || [ ! -w "$(dirname "$shell_rc")" ]; then
+        return 1  # Cannot write to directory
+    fi
+    
+    # Create file if it doesn't exist
+    if [ ! -f "$shell_rc" ]; then
+        touch "$shell_rc"
+        chmod 644 "$shell_rc"
+        # Try to set ownership if we know the user
+        if [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ]; then
+            chown "$INSTALL_USER:$INSTALL_USER" "$shell_rc" 2>/dev/null || true
+        fi
+    fi
+    
+    local marker="# luoking-box shell integration"
+    if grep -qF "$marker" "$shell_rc" 2>/dev/null; then
+        return 0  # Already added
+    fi
+    
+    echo "" >> "$shell_rc"
+    echo "$marker" >> "$shell_rc"
+    echo "[ -f /etc/profile.d/luoking-box.sh ] && source /etc/profile.d/luoking-box.sh" >> "$shell_rc"
+    
+    return 0
+}
+
+# Detect and configure shell integration for current user
+if [ -n "$SUDO_USER" ]; then
+    # Running with sudo, use SUDO_USER
+    INSTALL_USER="$SUDO_USER"
+elif [ "$(id -u)" -ne 0 ] && [ -n "$USER" ]; then
+    # Running as regular user
+    INSTALL_USER="$USER"
+else
+    # Running as root without sudo, try to detect from environment
+    INSTALL_USER="${SUDO_USER:-${USER:-}}"
+fi
+
+SHELL_INTEGRATION_ADDED=false
+
+if [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ]; then
+    USER_HOME=$(eval echo ~"$INSTALL_USER" 2>/dev/null || getent passwd "$INSTALL_USER" 2>/dev/null | cut -d: -f6 || echo "")
+    
+    if [ -n "$USER_HOME" ] && [ -d "$USER_HOME" ]; then
+        # Detect shell and add to appropriate config file
+        USER_SHELL=$(getent passwd "$INSTALL_USER" 2>/dev/null | cut -d: -f7 || echo "")
+        
+        if [[ "$USER_SHELL" == *"zsh"* ]]; then
+            if add_shell_integration "$USER_HOME" "$USER_HOME/.zshrc"; then
+                SHELL_INTEGRATION_ADDED=true
+            fi
+        elif [[ "$USER_SHELL" == *"bash"* ]] || [ -z "$USER_SHELL" ]; then
+            # Default to bash if shell is unknown
+            if add_shell_integration "$USER_HOME" "$USER_HOME/.bashrc"; then
+                SHELL_INTEGRATION_ADDED=true
+            fi
+        fi
+        
+        # Also add to .profile for login shells (bash) - but only if .bashrc doesn't exist
+        if [ ! -f "$USER_HOME/.bashrc" ] && [ -f "$USER_HOME/.profile" ]; then
+            add_shell_integration "$USER_HOME" "$USER_HOME/.profile"
+        fi
+    fi
+fi
+
+# For system-wide installation, /etc/profile.d/luoking-box.sh will be automatically
+# loaded for login shells. For non-login interactive shells, users need to have
+# it in their ~/.bashrc or ~/.zshrc (which we just added above).
+
 echo ""
 echo "luoking-box has been installed successfully!"
 echo ""
@@ -80,4 +154,21 @@ echo "  Config directory: /etc/luoking-box/sing-box-config/"
 echo ""
 echo "To switch configuration, edit /etc/luoking-box/config.json and change 'active_config'"
 echo "then restart the service: sudo systemctl restart luoking-box"
+echo ""
+if [ "$SHELL_INTEGRATION_ADDED" = true ] && [ -n "$INSTALL_USER" ]; then
+    echo "✓ Shell integration has been automatically configured for user: $INSTALL_USER"
+    echo "  You can now directly use:"
+    echo "    luoking-box enable session docker"
+    echo "    luoking-box clear session docker"
+    echo ""
+    echo "  Note: Open a new terminal or run 'source ~/.bashrc' (or 'source ~/.zshrc') to activate."
+else
+    echo "Shell integration:"
+    echo "  To enable direct usage, add this to your ~/.bashrc or ~/.zshrc:"
+    echo "    [ -f /etc/profile.d/luoking-box.sh ] && source /etc/profile.d/luoking-box.sh"
+    echo ""
+    echo "  Then you can directly use:"
+    echo "    luoking-box enable session docker"
+    echo "    luoking-box clear session docker"
+fi
 

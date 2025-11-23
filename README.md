@@ -88,6 +88,120 @@ sudo systemctl enable luoking-box
 sudo systemctl restart luoking-box
 ```
 
+## 代理管理
+
+luoking-box 提供了便捷的代理管理工具，可以自动从配置文件中提取代理设置并应用到不同的客户端。
+
+### Shell 集成（自动配置）
+
+**安装后自动配置**：安装 deb 包时，会自动将 shell 集成添加到你的 `~/.bashrc` 或 `~/.zshrc` 文件中。
+
+**首次使用**：安装后，重新打开终端或运行以下命令激活：
+
+```bash
+# 对于 bash
+source ~/.bashrc
+
+# 对于 zsh
+source ~/.zshrc
+```
+
+之后就可以直接使用命令，无需任何额外配置。
+
+### 基本用法
+
+```bash
+# 查看帮助
+luoking-box help
+
+# 启用当前 shell 会话的代理（直接使用，无需 source）
+luoking-box enable session
+
+# 启用 Docker daemon 的代理
+luoking-box enable docker
+
+# 同时启用 shell 和 Docker 代理（一次执行多个目标）
+luoking-box enable session docker
+
+# 清除 shell 代理
+luoking-box clear session
+
+# 清除 Docker 代理
+luoking-box clear docker
+
+# 同时清除 shell 和 Docker 代理
+luoking-box clear session docker
+```
+
+**注意**：如果安装时没有检测到用户（例如使用 `dpkg -i` 直接安装），可以手动添加以下内容到 `~/.bashrc` 或 `~/.zshrc`：
+
+```bash
+[ -f /etc/profile.d/luoking-box.sh ] && source /etc/profile.d/luoking-box.sh
+```
+
+### 工作原理
+
+`luoking-box enable` 命令会：
+1. 自动读取 `/etc/luoking-box/config.json` 获取当前活动配置
+2. 从对应的 sing-box 配置文件中查找第一个 `"type": "mixed"` 的 inbound 配置
+3. 提取 `listen` 和 `listen_port` 信息
+4. 根据目标类型设置相应的代理
+
+### Shell 代理
+
+Shell 代理会设置以下环境变量：
+- `http_proxy`, `HTTP_PROXY`
+- `https_proxy`, `HTTPS_PROXY`
+- `all_proxy`, `ALL_PROXY`
+
+**使用方法**：
+
+安装 deb 包后，shell 集成会自动配置。只需重新打开终端或运行 `source ~/.bashrc`（或 `source ~/.zshrc`），然后直接使用：
+
+```bash
+luoking-box enable session      # 启用代理
+luoking-box clear session       # 禁用代理
+```
+
+**工作原理**：
+- 安装时自动将 shell 集成添加到用户的 `~/.bashrc` 或 `~/.zshrc`
+- Shell 集成提供了一个包装函数，当检测到 `enable session` 或 `clear session` 时，会自动在当前 shell 中设置或清除环境变量
+- `/etc/profile.d/luoking-box.sh` 会在登录 shell 时自动加载
+
+**如果没有自动配置**（例如使用 `dpkg -i` 直接安装）：可以手动添加以下内容到 `~/.bashrc` 或 `~/.zshrc`：
+
+```bash
+[ -f /etc/profile.d/luoking-box.sh ] && source /etc/profile.d/luoking-box.sh
+```
+
+### Docker 代理
+
+Docker 代理会在 `/etc/systemd/system/docker.service.d/http-proxy.conf` 创建代理配置。
+
+**注意**：配置写入后需要重启 Docker 服务才能生效：
+
+```bash
+sudo systemctl daemon-reload && sudo systemctl restart docker
+```
+
+### 配置要求
+
+要使用代理管理功能，你的 sing-box 配置文件中必须包含一个 `"type": "mixed"` 的 inbound 配置，例如：
+
+```json
+{
+    "inbounds": [
+        {
+            "type": "mixed",
+            "tag": "MixedIn",
+            "listen": "127.0.0.1",
+            "listen_port": 8890,
+            "set_system_proxy": false
+        }
+    ]
+}
+```
+
 ## 配置文件
 
 luoking-box 使用灵活的配置管理方式，支持多个配置文件：
@@ -231,7 +345,7 @@ sudo dpkg -P luoking-box
 
 /usr/bin/
 ├── sing-box                       # 可执行文件
-└── luoking-box-wrapper            # 配置包装脚本（读取 config.json 并启动对应配置）
+└── luoking-box                    # 主命令脚本（服务管理和代理管理）
 
 /lib/systemd/system/
 └── luoking-box.service            # 服务文件
@@ -295,7 +409,7 @@ luoking-singbox-deb/
 │   │   └── postrm                # 卸载后脚本
 │   ├── usr/bin/                  # 可执行文件
 │   │   ├── sing-box              # sing-box 主程序
-│   │   └── luoking-box-wrapper   # 配置包装脚本
+│   │   └── luoking-box            # 主命令脚本
 │   ├── etc/sing-box/             # 配置文件
 │   │   ├── config.json           # 主配置文件
 │   │   ├── config.json.example   # 主配置示例
@@ -318,7 +432,8 @@ luoking-singbox-deb/
 
 ### 工作原理
 
-- `luoking-box-wrapper` 脚本读取 `/etc/luoking-box/config.json` 中的 `active_config` 字段
+- `luoking-box run` 命令读取 `/etc/luoking-box/config.json` 中的 `active_config` 字段
 - 根据 `active_config` 的值，加载对应的配置文件（如 `default.json`）
 - 使用 `sing-box` 运行选定的配置文件
 - 通过修改 `config.json` 可以轻松切换不同的配置
+- `luoking-box enable/clear` 命令可以自动从配置文件中提取代理设置并应用到不同的客户端
