@@ -12,18 +12,38 @@ on:
 jobs:
   create-pr:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Merge')
+    if: github.event_name == 'push'
     concurrency:
       group: auto-release-pr
       cancel-in-progress: false
     
     steps:
+    - name: Debug event info
+      run: |
+        echo "Event name: ${{ github.event_name }}"
+        echo "Commit message: ${{ github.event.head_commit.message }}"
+        echo "Ref: ${{ github.ref }}"
+        
+    - name: Check if merge commit
+      id: check-merge
+      run: |
+        COMMIT_MSG="${{ github.event.head_commit.message }}"
+        if [[ "$COMMIT_MSG" == Merge* ]] || [[ "$COMMIT_MSG" == *"Merge pull request"* ]]; then
+          echo "is_merge=true" >> $GITHUB_OUTPUT
+          echo "This is a merge commit"
+        else
+          echo "is_merge=false" >> $GITHUB_OUTPUT
+          echo "This is not a merge commit, skipping auto-release"
+        fi
+        
     - name: Checkout code
+      if: steps.check-merge.outputs.is_merge == 'true'
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
         
     - name: Check for breaking/feat commits
+      if: steps.check-merge.outputs.is_merge == 'true'
       id: check-commits
       run: |
         # Get commits since last tag or from beginning
@@ -54,7 +74,9 @@ jobs:
         fi
         
     - name: Create or update PR to production
-      if: steps.check-commits.outputs.skip_auto_release == 'false'
+      if: |
+        steps.check-merge.outputs.is_merge == 'true' &&
+        steps.check-commits.outputs.skip_auto_release == 'false'
       uses: actions/github-script@v7
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
