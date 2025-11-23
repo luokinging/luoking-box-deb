@@ -1,0 +1,7 @@
+{
+  "ref": "refs/heads/main",
+  "head_commit": {
+    "message": "Merge pull request #1 from feature-branch"
+  }
+}
+
