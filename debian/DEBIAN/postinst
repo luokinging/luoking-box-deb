@@ -113,7 +113,8 @@ fi
 
 SHELL_INTEGRATION_ADDED=false
 
-if [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ]; then
+# Configure shell integration for detected user (including root if applicable)
+if [ -n "$INSTALL_USER" ]; then
     USER_HOME=$(eval echo ~"$INSTALL_USER" 2>/dev/null || getent passwd "$INSTALL_USER" 2>/dev/null | cut -d: -f6 || echo "")
     
     if [ -n "$USER_HOME" ] && [ -d "$USER_HOME" ]; then
@@ -134,6 +135,20 @@ if [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ]; then
         # Also add to .profile for login shells (bash) - but only if .bashrc doesn't exist
         if [ ! -f "$USER_HOME/.bashrc" ] && [ -f "$USER_HOME/.profile" ]; then
             add_shell_integration "$USER_HOME" "$USER_HOME/.profile"
+        fi
+    fi
+fi
+
+# Also configure for root user if we're installing as root and root's home is accessible
+if [ "$(id -u)" -eq 0 ] && [ -z "$SUDO_USER" ]; then
+    ROOT_HOME=$(eval echo ~root 2>/dev/null || echo "/root")
+    if [ -d "$ROOT_HOME" ] && [ -w "$ROOT_HOME" ]; then
+        # Try to add to root's .bashrc
+        if add_shell_integration "$ROOT_HOME" "$ROOT_HOME/.bashrc"; then
+            if [ "$SHELL_INTEGRATION_ADDED" = false ]; then
+                SHELL_INTEGRATION_ADDED=true
+                INSTALL_USER="root"
+            fi
         fi
     fi
 fi

@@ -388,12 +388,41 @@ case "${1:-}" in
             # Session target, but script is directly executed
             # Check if shell function exists (shell integration loaded)
             if ! type luoking-box 2>/dev/null | grep -q "function\|shell function"; then
-                # Shell integration not loaded, output eval command for user to execute
+                # Shell integration not loaded, try to auto-load it
                 if [ -f /etc/profile.d/luoking-box.sh ]; then
-                    # Output command that user can eval to load integration and execute
-                    echo "eval \"\$(cat /etc/profile.d/luoking-box.sh)\" && luoking-box enable $*" >&2
-                    echo "" >&2
-                    echo "Or restart your terminal (shell integration is auto-configured in ~/.bashrc or ~/.zshrc)" >&2
+                    # Check if we're in an interactive shell
+                    if [ -t 0 ] && [ -n "$PS1" ]; then
+                        # Interactive shell: load shell integration and re-execute
+                        eval "$(cat /etc/profile.d/luoking-box.sh)"
+                        # Re-execute the command with shell function
+                        luoking-box enable "$@"
+                        exit $?
+                    else
+                        # Non-interactive shell: directly set environment variables
+                        # Get proxy URL
+                        local proxy_url
+                        proxy_url=$(enable_session_proxy 2>/dev/null)
+                        if [ $? -eq 0 ] && [ -n "$proxy_url" ] && echo "$proxy_url" | grep -qE '^http://'; then
+                            # Output instructions for setting env vars (can't set in parent shell from script)
+                            echo "[proxy] Shell proxy enabled: $proxy_url" >&2
+                            echo "To use in this shell, run:" >&2
+                            echo "  export http_proxy=\"$proxy_url\"" >&2
+                            echo "  export https_proxy=\"$proxy_url\"" >&2
+                            echo "  export HTTP_PROXY=\"$proxy_url\"" >&2
+                            echo "  export HTTPS_PROXY=\"$proxy_url\"" >&2
+                            echo "Or source shell integration:" >&2
+                            echo "  source /etc/profile.d/luoking-box.sh && luoking-box enable session" >&2
+                            exit 0
+                        else
+                            echo "Error: Failed to get proxy configuration" >&2
+                            exit 1
+                        fi
+                    fi
+                else
+                    # Shell integration file not found
+                    echo "Error: Shell integration not available" >&2
+                    echo "Please add this to your ~/.bashrc or ~/.zshrc:" >&2
+                    echo "  [ -f /etc/profile.d/luoking-box.sh ] && source /etc/profile.d/luoking-box.sh" >&2
                     # Still output the URL for reference
                     enable_session_proxy 2>/dev/null || true
                     exit 1
