@@ -95,8 +95,7 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.title == 'chore: auto-release patch update'
-    needs: []
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true && contains(github.event.pull_request.title, 'chore: auto-release patch update')
     
     steps:
     - name: Checkout code
